@@ -5,7 +5,7 @@ CREATE TABLE `hmacauth` (
       `user_name` varchar(64) NOT NULL,
       `user_passwd_hash` varchar(40) NOT NULL COMMENT 'password md5 hash',
       `user_passwd_key` varchar(40) NOT NULL COMMENT 'random key',
-      `user_passwd_auth_hash` varchar(80) NOT NULL COMMENT 'auth hash',
+      `user_passwd_access_token` varchar(40) NOT NULL COMMENT 'access token',
       `user_auth_expire_time` datetime NOT NULL,
       `user_auth_last_time` datetime NOT NULL COMMENT 'last success time',
       `lock_auth` tinyint(4) NOT NULL DEFAULT '0',
