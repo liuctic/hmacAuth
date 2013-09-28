@@ -78,7 +78,7 @@ class hmacauth {
             echo "Good Hash: ".$goodHash. "\n";
             if($goodHash == $authHash) {
                 echo "Auth OK.\n";
-                $accToken = $this->generateAccessToken();
+                $accToken = $this->generateAccessToken($userName);
                 $newAuthToken = $this->generateAuthToken();
                 @date_default_timezone_set('Asia/Shanghai');
                 $curTime = @time();
@@ -110,6 +110,59 @@ class hmacauth {
         return $ret;
     }
 
+    public function getAuthUser($accToken) {
+        if($accToken=='') return false;
+        $sql = "select user_id, user_name from {$this->table} where 
+                user_passwd_access_token='$accToken' and 
+                user_auth_expire_time>now() and 
+                lock_auth = 0 ";
+        $res = @mysql_query($sql, $this->dbcon);
+        if($res && @mysql_num_rows($res)==1 ) {
+            $row = @mysql_fetch_row($res);
+            $ret = array();
+            $ret['user_id'] = $row[0];
+            $ret['user_name'] = $row[1];
+            return $ret;
+        }
+        else return false;
+    }
+    public function getAuthUserRefreshToken($accToken) {
+        if($accToken=='') return false;
+        $sql = "select user_id, user_name from {$this->table} where 
+                user_passwd_access_token='$accToken' and 
+                user_auth_expire_time>now() and 
+                lock_auth = 0 ";
+        $res = @mysql_query($sql, $this->dbcon);
+        if($res && @mysql_num_rows($res)==1 ) {
+            $row = @mysql_fetch_row($res);
+            $ret = array();
+            $ret['user_id'] = $row[0];
+            $ret['user_name'] = $row[1];
+            $newAccToken = $this->generateAccessToken($row[1]);
+            $ret['access_token'] = $newAccToken; 
+            @date_default_timezone_set('Asia/Shanghai');
+            $curTime = @time();
+            $expTime = $curTime + 3*24*3600; // 3 days
+            $expTimeStr = @date('Y-m-d H:i:s', $expTime);
+            $sqlu = "update {$this->table} set user_passwd_access_token='$newAccToken', 
+                    user_auth_expire_time = '$expTimeStr', 
+                    user_auth_last_time = now()  
+                    where 
+                    `user_name`='{$row[1]}'  
+                    and `user_passwd_access_token` = '$accToken' ";
+            $resu = @mysql_query($sqlu, $this->dbcon);
+            if($resu) {
+                return $ret;
+            }
+            else {
+                return false;
+            }
+        }
+        else return false;
+    }
+    public function newUser($userName, $passwd) {
+        ;
+    }
     private function calculateAuthHash($authToken, $passwd_hash) {
         $baseStr = $authToken . "-plus-" . $passwd_hash ;
         $hash = hash('md5', $baseStr);
@@ -127,7 +180,7 @@ class hmacauth {
         }
         return $randToken;
     }
-    private function generateAccessToken($length = 24) {
+    private function generateAccessToken($userName, $length = 24) {
         $base = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_";
         $len = strlen($base);
         $accToken = '';
@@ -136,17 +189,80 @@ class hmacauth {
             $x = rand(0, $len-1);
             $accToken .= $base[$x];
         }
-        return $accToken;
+        return $this->spec_uuid($userName.$accToken);
     }
+
+    private function spec_uuid($str){
+        $md5hash = md5($str);
+        $uuidstr = $this->md5_to_uuid($md5hash);
+        //$md5hash2 = uuid_to_md5($uuidstr);
+        return $uuidstr;
+    }
+
+    private function md5_to_uuid($md5str){
+        $md5hash = $md5str;
+        $uuidstr = "";
+        $n = 0;
+        $j = 0;
+        while($j<=27){
+            $c1 = $md5hash[$j];
+            $c2 = $md5hash[$j+1];
+            $c3 = $md5hash[$j+2];
+            $n = (int)(256*$this->getCharNum($c1) + 16*$this->getCharNum($c2) + $this->getCharNum($c3));
+            $v1 = (int)($n/64);
+            $v2 = $n%64;
+            $uuidstr = $uuidstr.$this->getNumChar($v1).$this->getNumChar($v2);
+            $j+=3;
+        }
+        $c1= $md5hash[30];
+        $c2 = $md5hash[31];
+        $c3 = 0;
+        $n =  (int)(256*$this->getCharNum($c1) + 16*$this->getCharNum($c2) + $this->getCharNum($c3));
+        $v1 = (int)($n/64);
+        $v2 = $n%64;
+        $uuidstr = $uuidstr.$this->getNumChar($v1).$this->getNumChar($v2);
+        return $uuidstr;
+    }
+
+    private function uuid_to_md5($uuidStr){
+        $md5str = "";
+        $n = 0;
+        $j = 0;
+        while($j<21){
+            $c1 = $uuidStr[$j];
+            $c2 = $uuidStr[$j+1];
+            $n = (int)(64*$this->getCharNumUuid($c1) + $this->getCharNumUuid($c2));
+            $v1 = (int)($n/256);
+            $n = $n%256;
+            $v2 = (int)($n/16);
+            $v3 = $n%16;
+            $md5str = $md5str.$this->getNumChar($v1).$this->getNumChar($v2).$this->getNumChar($v3);
+            $j+=2;
+        }
+        return substr($md5str,0,32);
+    }
+
+    private function getCharNum($c){
+        if($c<='9' && $c>='0') return ord($c)-ord('0');
+        if($c<='f' && $c>='a') return 10+ord($c)-ord('a');
+        if($c<='F' && $c>='A') return 10+ord($c)-ord('A');
+        return 0;
+    }
+
+    private function getCharNumUuid($c){
+        if($c<='9' && $c>='0') return ord($c)-ord('0');
+        if($c<='z' && $c>='a') return 10+ord($c)-ord('a');
+        if($c<='Z' && $c>='A') return 36+ord($c)-ord('A');
+        if($c == '-') return 62;
+        if($c == '_') return 63;
+        return 0;
+    }
+
+    private function getNumChar($num){
+        $sh="0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_";
+        return $sh[$num];
+    }
+
 };
 
-$db = @mysql_connect('localhost', 'root', 'i,robot');
-@mysql_select_db('tempdb', $db);
-$a = new hmacauth($db, 'hmacauth', true);
-
-//$at = $a->step1GetAuthToken('abc');
-$at = '8SpbUO1kB5';
-echo "Auth token: $at\n";
-$act = $a->step2Auth('abc', $at, '977fb73fe16864218a042e77af396374');
-echo "Access token: $act\n";
 ?>
