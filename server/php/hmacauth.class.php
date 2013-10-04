@@ -1,5 +1,4 @@
 <?php
-
 class hmacauth {
     private $noisyPrint;
     private $initOK;
@@ -39,7 +38,7 @@ class hmacauth {
         if(!$this->initOK) return '';
         if(!$this->noisyPrint) ob_start();
         $randToken = $this->generateAuthToken();
-        $sql = "select `user_name`, `user_passwd_key` from `".$this->table."`";
+        $sql = "select `user_name`, `user_passwd_key` from `".$this->table."` where `user_name`='$userName'";
         $res = @mysql_query($sql, $this->dbcon);
         if($res && @mysql_num_rows($res)==1) { // userName exists and is unique
             $sqlu = "update `{$this->table}` set `user_passwd_key`='$randToken' where `user_name`='$userName'";
@@ -64,7 +63,7 @@ class hmacauth {
         return empty string when failed,
         return access token when succeeded.
     */
-    public function step2Auth($userName, $authToken, $authHash) {
+    public function step2Auth($userName, $authToken, $authHash, &$errorInfo) {
         if(!$this->initOK) return '';
         $ret = '';
         if(!$this->noisyPrint) ob_start();
@@ -100,10 +99,12 @@ class hmacauth {
             }
             else {
                 echo "Auth Failed.\n";
+                $errorInfo .= "Error Password.\n";
             }
         }
         else {
             echo "Illegal user name or auth token.\n";
+            $errorInfo .= "Illegal user name or auth token.\n";
         }
 
         if(!$this->noisyPrint) ob_end_clean();
@@ -124,7 +125,9 @@ class hmacauth {
             $ret['user_name'] = $row[1];
             return $ret;
         }
-        else return false;
+        else {
+            return false;
+        }
     }
     public function getAuthUserRefreshToken($accToken) {
         if($accToken=='') return false;
@@ -160,8 +163,64 @@ class hmacauth {
         }
         else return false;
     }
-    public function newUser($userName, $passwd) {
-        ;
+    
+    private function testUnique($userName) {
+        $sql = "select `user_name` from `{$this->table}` where `user_name`='$userName' ";
+        $res = @mysql_query($sql, $this->dbcon);
+        if(!$res) {
+            $ret['error_info'] = 'database error.';
+            return false;
+        }
+        else {
+            if(@mysql_num_rows($res)>=1) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public function register($userName, $passwordHash) {
+        $ret = array();
+        $ret['ok'] = 0;
+        $ret['error_info'] = '';
+        if( !$this->isLegalUserName($userName) ) {
+            $ret['error_info'] = '非法的用户名 - Illegal user name: ' . $userName;
+            return $ret;
+        } 
+        if( !$this->testUnique($userName) ) {
+            $ret['error_info'] = "用户名已经被占用 - User name already exists: " . $userName;
+            return $ret;
+        }
+        if( !$this->isLegalPasswordHash($passwordHash) ) {
+            $ret['error_info'] = '非法的密码 - Illegal password: '.$passwordHash;
+            return $ret;
+        }
+
+
+        $sql = "insert into `{$this->table}` (`user_name`, `user_passwd_hash`, `user_regtime`) values ('$userName', '$passwordHash', now())";
+        $res = @mysql_query($sql, $this->dbcon);
+        if($res) {
+            $ret['ok'] = 1;
+        }
+        else {
+            $ret['error_info'] = mysql_error();
+        }
+        
+        return $ret;
+    }
+    
+    public function logOut($accToken) {
+        $ret = array();
+        $ret['ok'] = 0;
+        $ret['error_info'] = '';
+        // do not return the new access token
+        if(false === getAuthUserRefreshToken($accToken) ) {
+            $ret['error_info'] = "Log out failed.";
+        }
+        else {
+            $ret['ok'] = 1;
+        }
+        return $ret;
     }
     private function calculateAuthHash($authToken, $passwd_hash) {
         $baseStr = $authToken . "-plus-" . $passwd_hash ;
@@ -261,6 +320,18 @@ class hmacauth {
     private function getNumChar($num){
         $sh="0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_";
         return $sh[$num];
+    }
+
+    private function isLegalUserName($userName) {
+        return true;
+    }
+
+    private function isLegalPasswordHash($passwordHash) {
+        //use sha256
+        $len = strlen($passwordHash);
+        if($len!=64) return false;
+        if(preg_match('/[^0-9a-fA-F]+/', $passwordHash)) return false;
+        return true;
     }
 
 };
