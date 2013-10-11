@@ -113,6 +113,7 @@ class hmacauth {
 
     public function getAuthUser($accToken) {
         if($accToken=='') return false;
+        if(!$this->noisyPrint) ob_start();
         $sql = "select user_id, user_name from {$this->table} where 
                 user_passwd_access_token='$accToken' and 
                 user_auth_expire_time>now() and 
@@ -123,14 +124,17 @@ class hmacauth {
             $ret = array();
             $ret['user_id'] = $row[0];
             $ret['user_name'] = $row[1];
+            if(!$this->noisyPrint) ob_end_clean();
             return $ret;
         }
         else {
+            if(!$this->noisyPrint) ob_end_clean();
             return false;
         }
     }
     public function getAuthUserRefreshToken($accToken) {
         if($accToken=='') return false;
+        if(!$this->noisyPrint) ob_start();
         $sql = "select user_id, user_name from {$this->table} where 
                 user_passwd_access_token='$accToken' and 
                 user_auth_expire_time>now() and 
@@ -155,13 +159,12 @@ class hmacauth {
                     and `user_passwd_access_token` = '$accToken' ";
             $resu = @mysql_query($sqlu, $this->dbcon);
             if($resu) {
+                if(!$this->noisyPrint) ob_end_clean();
                 return $ret;
             }
-            else {
-                return false;
-            }
         }
-        else return false;
+        if(!$this->noisyPrint) ob_end_clean();
+        return false;
     }
     
     private function testUnique($userName) {
